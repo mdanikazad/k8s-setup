@@ -40,149 +40,212 @@ Start by updating the `/etc/hosts` files and specifying the IP addresses and hos
 
 1. Edit the `/etc/hosts` file:
 
-```
-sudo nano /etc/hosts
-Add the following entries:
+    ```bash
+    sudo nano /etc/hosts
+    ```
 
-10.168.253.4 k8s-master-node
-10.168.253.29 k8s-worker-node-1
-10.168.253.10 k8s-worker-node-2
-Save the changes and exit.
+    Add the following entries:
 
-```
-Modify the hostnames for each node:
+    ```
+    10.168.253.4 k8s-master-node
+    10.168.253.29 k8s-worker-node-1
+    10.168.253.10 k8s-worker-node-2
+    ```
 
-sudo hostnamectl set-hostname "k8s-master-node"  # For the master node
-sudo hostnamectl set-hostname "k8s-worker-node-1"  # For worker node 1
-sudo hostnamectl set-hostname "k8s-worker-node-2"  # For worker node 2
-To effect the hostname changes, run:
+    Save the changes and exit.
 
-```
-sudo exec bash
-To verify the hostname on each node:
+2. Modify the hostnames for each node:
 
-hostname
-Ensure you can ping all the nodes from each other:
+    ```bash
+    sudo hostnamectl set-hostname "k8s-master-node"  # For the master node
+    sudo hostnamectl set-hostname "k8s-worker-node-1"  # For worker node 1
+    sudo hostnamectl set-hostname "k8s-worker-node-2"  # For worker node 2
+    ```
 
-```
-ping -c 3 k8s-worker-node-1
-ping -c 3 k8s-worker-node-2
-Step 2: Disable Swap Space (All Nodes)
+3. To effect the hostname changes, run:
+
+    ```bash
+    sudo exec bash
+    ```
+
+4. To verify the hostname on each node:
+
+    ```bash
+    hostname
+    ```
+
+5. Ensure you can ping all the nodes from each other:
+
+    ```bash
+    ping -c 3 k8s-worker-node-1
+    ping -c 3 k8s-worker-node-2
+    ```
+
+## Step 2: Disable Swap Space (All Nodes)
+
 Disabling swap space is a standard requirement for Kubernetes. Swap degrades performance, and disabling it ensures consistent application performance without unpredictability.
 
-To disable swap:
+1. To disable swap:
 
-```
-sudo swapoff -a
-To make this change permanent, comment out the swap entry in /etc/fstab.
+    ```bash
+    sudo swapoff -a
+    ```
 
-To verify swap is disabled:
+2. To make this change permanent, comment out the swap entry in `/etc/fstab`.
 
-```
-swapon --show
-Step 3: Load Containerd Modules (All Nodes)
+3. To verify swap is disabled:
+
+    ```bash
+    swapon --show
+    ```
+
+## Step 3: Load Containerd Modules (All Nodes)
+
 Kubernetes uses Containerd as the container runtime. Enable and load the necessary kernel modules.
 
-```
-sudo modprobe overlay
-sudo modprobe br_netfilter
-Create a configuration file to load these modules permanently:
+1. Run the following commands to load the necessary modules:
 
-sudo tee /etc/modules-load.d/k8s.conf <<EOF
-overlay
-br_netfilter
-EOF
-Step 4: Configure Kubernetes IPv4 Networking (All Nodes)
+    ```bash
+    sudo modprobe overlay
+    sudo modprobe br_netfilter
+    ```
+
+2. Create a configuration file to load these modules permanently:
+
+    ```bash
+    sudo tee /etc/modules-load.d/k8s.conf <<EOF
+    overlay
+    br_netfilter
+    EOF
+    ```
+
+## Step 4: Configure Kubernetes IPv4 Networking (All Nodes)
+
 Configure Kubernetes networking to ensure seamless communication between pods and external environments.
 
-```
-Create a Kubernetes configuration file:
+1. Create a Kubernetes configuration file:
 
-sudo nano /etc/sysctl.d/k8s.conf
-Add the following lines:
+    ```bash
+    sudo nano /etc/sysctl.d/k8s.conf
+    ```
 
-net.bridge.bridge-nf-call-iptables = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward = 1
-Apply the settings:
+    Add the following lines:
 
-sudo sysctl --system
-```
+    ```
+    net.bridge.bridge-nf-call-iptables = 1
+    net.bridge.bridge-nf-call-ip6tables = 1
+    net.ipv4.ip_forward = 1
+    ```
 
+2. Apply the settings:
 
-Step 5: Install Docker (All Nodes)
+    ```bash
+    sudo sysctl --system
+    ```
+
+## Step 5: Install Docker (All Nodes)
+
 Install Docker, which manages containers in Kubernetes.
 
-```
-sudo apt update
-sudo apt install docker.io -y
+1. Update and install Docker:
 
-```
-Verify Docker is running:
+    ```bash
+    sudo apt update
+    sudo apt install docker.io -y
+    ```
 
-```
-sudo systemctl status docker
-Enable Docker to start on boot:
+2. Verify Docker is running:
 
-```
-sudo systemctl enable docker
-To configure containerd, create the directory and configuration:
+    ```bash
+    sudo systemctl status docker
+    ```
 
-sudo mkdir /etc/containerd
-sudo sh -c "containerd config default > /etc/containerd/config.toml"
-sudo sed -i 's/ SystemdCgroup = false/ SystemdCgroup = true/' /etc/containerd/config.toml
-sudo systemctl restart containerd.service
-sudo systemctl status containerd.service
-Step 6: Install Kubernetes Components (All Nodes)
+3. Enable Docker to start on boot:
+
+    ```bash
+    sudo systemctl enable docker
+    ```
+
+4. To configure containerd, create the directory and configuration:
+
+    ```bash
+    sudo mkdir /etc/containerd
+    sudo sh -c "containerd config default > /etc/containerd/config.toml"
+    sudo sed -i 's/ SystemdCgroup = false/ SystemdCgroup = true/' /etc/containerd/config.toml
+    sudo systemctl restart containerd.service
+    sudo systemctl status containerd.service
+    ```
+
+## Step 6: Install Kubernetes Components (All Nodes)
+
 Install the Kubernetes packages:
 
-sudo apt-get install curl ca-certificates apt-transport-https -y
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-Add the official Kubernetes repository:
+1. Install prerequisites:
 
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-sudo apt update
-Install Kubernetes components:
+    ```bash
+    sudo apt-get install curl ca-certificates apt-transport-https -y
+    ```
 
-sudo apt install kubelet kubeadm kubectl -y
-Step 7: Initialize Kubernetes Cluster (Master Node)
+2. Add the official Kubernetes repository:
+
+    ```bash
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+    sudo apt update
+    ```
+
+3. Install Kubernetes components:
+
+    ```bash
+    sudo apt install kubelet kubeadm kubectl -y
+    ```
+
+## Step 7: Initialize Kubernetes Cluster (Master Node)
+
 Initialize the Kubernetes cluster on the master node:
 
+```bash
 sudo kubeadm init --pod-network-cidr=10.10.0.0/16
-To configure your system to use the cluster:
 
+To configure your system to use the cluster:
 mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
 Step 8: Install Calico Network Add-on Plugin
+
 Install the Calico network plugin for Kubernetes:
 
+1. Apply the Tigera operator manifest:
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+
+2.Download the custom resources manifest and update the CIDR:
 curl https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml -O
 sed -i 's/cidr: 192\.168\.0\.0\/16/cidr: 10.10.0.0\/16/g' custom-resources.yaml
 kubectl create -f custom-resources.yaml
+
+
 Step 9: Add Worker Nodes to the Cluster
 Join each worker node to the cluster by running the join command displayed during the initialization on the master node.
 
 kubeadm join 10.168.253.4:6443 --token <token> --discovery-token-ca-cert-hash <hash>
+
+
 Step 10: Testing Kubernetes Cluster
+
 To test the functionality of the cluster, deploy a simple Nginx application.
 
-Create a namespace:
-
+1. Create a namespace:
 kubectl create namespace demo-namespace
-Deploy Nginx:
 
+2. Deploy Nginx:
 kubectl create deployment my-app --image nginx --replicas 2 --namespace demo-namespace
-Expose the deployment using NodePort:
 
+3. Expose the deployment using NodePort:
 kubectl expose deployment my-app -n demo-namespace --type NodePort --port 80
-To verify the service:
 
+4. To verify the service:
 kubectl get svc -n demo-namespace
-Access the Nginx app from a worker node:
 
+5. Access the Nginx app from a worker node:
 curl http://<any-worker-IP>:<node-port>
-
-Conclusion
-This tutorial has provided a detailed walkthrough of installing Kubernetes on Ubuntu 24.04 with a master node and two worker nodes. By following these steps, you can deploy, scale, and manage your container applications efficiently and reliably.
