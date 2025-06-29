@@ -49,6 +49,7 @@ Add the following entries:
 10.168.253.10 k8s-worker-node-2
 Save the changes and exit.
 
+```
 Modify the hostnames for each node:
 
 sudo hostnamectl set-hostname "k8s-master-node"  # For the master node
