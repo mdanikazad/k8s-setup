@@ -57,12 +57,14 @@ sudo hostnamectl set-hostname "k8s-worker-node-1"  # For worker node 1
 sudo hostnamectl set-hostname "k8s-worker-node-2"  # For worker node 2
 To effect the hostname changes, run:
 
+```
 sudo exec bash
 To verify the hostname on each node:
 
 hostname
 Ensure you can ping all the nodes from each other:
 
+```
 ping -c 3 k8s-worker-node-1
 ping -c 3 k8s-worker-node-2
 Step 2: Disable Swap Space (All Nodes)
@@ -70,15 +72,18 @@ Disabling swap space is a standard requirement for Kubernetes. Swap degrades per
 
 To disable swap:
 
+```
 sudo swapoff -a
 To make this change permanent, comment out the swap entry in /etc/fstab.
 
 To verify swap is disabled:
 
+```
 swapon --show
 Step 3: Load Containerd Modules (All Nodes)
 Kubernetes uses Containerd as the container runtime. Enable and load the necessary kernel modules.
 
+```
 sudo modprobe overlay
 sudo modprobe br_netfilter
 Create a configuration file to load these modules permanently:
@@ -90,6 +95,7 @@ EOF
 Step 4: Configure Kubernetes IPv4 Networking (All Nodes)
 Configure Kubernetes networking to ensure seamless communication between pods and external environments.
 
+```
 Create a Kubernetes configuration file:
 
 sudo nano /etc/sysctl.d/k8s.conf
@@ -101,19 +107,24 @@ net.ipv4.ip_forward = 1
 Apply the settings:
 
 sudo sysctl --system
+```
+
 
 Step 5: Install Docker (All Nodes)
 Install Docker, which manages containers in Kubernetes.
 
+```
 sudo apt update
 sudo apt install docker.io -y
 
-
+```
 Verify Docker is running:
 
+```
 sudo systemctl status docker
 Enable Docker to start on boot:
 
+```
 sudo systemctl enable docker
 To configure containerd, create the directory and configuration:
 
