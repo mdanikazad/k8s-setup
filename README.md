@@ -203,6 +203,7 @@ Install the Kubernetes packages:
 ## Step 7: Initialize Kubernetes Cluster (Master Node)
 
 Initialize the Kubernetes cluster on the master node:
+After initializing the Kubernetes cluster, you need to set up your system to interact with it using kubectl. First, you create a directory called .kube in your home folder to store Kubernetes configuration files. Then, you copy the admin.conf file (generated during the kubeadm init process) into this directory, which contains important details like the API server address and credentials. Finally, you adjust the file's permissions so your user account can access it, ensuring kubectl works properly. This setup allows you to manage and interact with your Kubernetes cluster from your machine.
 
 ```bash
 sudo kubeadm init --pod-network-cidr=10.10.0.0/16
@@ -230,7 +231,7 @@ sed -i 's/cidr: 192\.168\.0\.0\/16/cidr: 10.10.0.0\/16/g' custom-resources.yaml
 kubectl create -f custom-resources.yaml
 ```
 
-### Step 9: Add Worker Nodes to the Cluster
+### Step 9: Add worker nodes to the cluster (on worker nodes)
 Join each worker node to the cluster by running the join command displayed during the initialization on the master node.
 
 ```bash
