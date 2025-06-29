@@ -206,46 +206,64 @@ Initialize the Kubernetes cluster on the master node:
 
 ```bash
 sudo kubeadm init --pod-network-cidr=10.10.0.0/16
+```
 
+```bash
 To configure your system to use the cluster:
 mkdir -p $HOME/.kube
 sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
 
 Step 8: Install Calico Network Add-on Plugin
-
 Install the Calico network plugin for Kubernetes:
 
 1. Apply the Tigera operator manifest:
+```bash
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+```
 
 2.Download the custom resources manifest and update the CIDR:
+```bash
 curl https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml -O
 sed -i 's/cidr: 192\.168\.0\.0\/16/cidr: 10.10.0.0\/16/g' custom-resources.yaml
 kubectl create -f custom-resources.yaml
-
+```
 
 Step 9: Add Worker Nodes to the Cluster
 Join each worker node to the cluster by running the join command displayed during the initialization on the master node.
 
+```bash
 kubeadm join 10.168.253.4:6443 --token <token> --discovery-token-ca-cert-hash <hash>
-
+```
 
 Step 10: Testing Kubernetes Cluster
 
 To test the functionality of the cluster, deploy a simple Nginx application.
 
 1. Create a namespace:
+```bash
 kubectl create namespace demo-namespace
+```
 
 2. Deploy Nginx:
+```bash
 kubectl create deployment my-app --image nginx --replicas 2 --namespace demo-namespace
+```
+
 
 3. Expose the deployment using NodePort:
+```bash
 kubectl expose deployment my-app -n demo-namespace --type NodePort --port 80
+```
 
 4. To verify the service:
+```bash
 kubectl get svc -n demo-namespace
+```
+
 
 5. Access the Nginx app from a worker node:
+```bash
 curl http://<any-worker-IP>:<node-port>
+```
