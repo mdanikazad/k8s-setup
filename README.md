@@ -209,6 +209,13 @@ After initializing the Kubernetes cluster, you need to set up your system to int
 sudo kubeadm init --pod-network-cidr=10.10.0.0/16
 ```
 
+In case if you face any issues related to conntrack, do install following utilities.
+
+```bash
+sudo apt-get update
+sudo apt-get install conntrack
+```
+
 ```bash
 To configure your system to use the cluster:
 mkdir -p $HOME/.kube
