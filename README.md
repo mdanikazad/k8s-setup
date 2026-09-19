@@ -1,4 +1,4 @@
-# 🚀 Kubernetes v1.34 — Hands-On Lab Setup Guide
+# Kubernetes v1.34 — Hands-On Lab Setup Guide
 
 > **Audience:** DevOps students who are new to Kubernetes and want a **working**
 > multi-node cluster they can build, break, and fix on their own machines.
@@ -6,13 +6,13 @@
 
 ---
 
-## 📚 Table of Contents
+## Table of Contents
 
-1. [What you will build](#-what-you-will-build)
-2. [Lab topology](#-lab-topology)
-3. [Pre-flight checklist](#-pre-flight-checklist)
-4. [Step-by-step installation](#-step-by-step-installation)
-   - [Step 1 — Hostnames & `/etc/hosts`](#step-1--hostnames--etchosts-all-nodes)
+1. [What you will build](#what-you-will-build)
+2. [Lab topology](#lab-topology)
+3. [Pre-flight checklist](#pre-flight-checklist)
+4. [Step-by-step installation](#step-by-step-installation)
+   - [Step 1 — Hostnames and /etc/hosts](#step-1--hostnames-and-etchosts-all-nodes)
    - [Step 2 — Disable swap](#step-2--disable-swap-all-nodes)
    - [Step 3 — Load kernel modules](#step-3--load-required-kernel-modules-all-nodes)
    - [Step 4 — Sysctl networking](#step-4--configure-sysctl-networking-all-nodes)
@@ -22,14 +22,15 @@
    - [Step 8 — Install Calico CNI](#step-8--install-calico-cni-master-node-only)
    - [Step 9 — Join worker nodes](#step-9--join-worker-nodes-on-each-worker)
    - [Step 10 — Smoke test](#step-10--smoke-test-the-cluster)
-5. [🆕 ETCD Backup & Restore (Demo)](#-etcd-backup--restore-demo)
-6. [Troubleshooting quick-fixes](#-troubleshooting-quick-fixes)
-7. [Useful kubectl shortcuts](#-useful-kubectl-shortcuts)
-8. [Cleanup](#-cleanup-start-fresh)
+5. [ETCD Backup and Restore (Demo)](#etcd-backup-and-restore-demo)
+6. [Cluster Upgrade (v1.34 -> v1.35)](#cluster-upgrade-v134--v135)
+7. [Troubleshooting quick-fixes](#troubleshooting-quick-fixes)
+8. [Useful kubectl shortcuts](#useful-kubectl-shortcuts)
+9. [Cleanup](#cleanup-start-fresh)
 
 ---
 
-## 🎯 What you will build
+## What you will build
 
 By the end of this guide you will have:
 
@@ -41,7 +42,7 @@ By the end of this guide you will have:
 
 ---
 
-## 🗺️ Lab topology
+## Lab topology
 
 ```
                 ┌──────────────────────────┐
@@ -69,11 +70,11 @@ By the end of this guide you will have:
 | `k8s-worker-node-1`   | worker        | `10.168.253.29` |
 | `k8s-worker-node-2`   | worker        | `10.168.253.10` |
 
-> 💡 **Tip:** You can use VirtualBox, VMware Fusion, Multipass (`multipass launch`), or cloud VMs — anything that gives you three Ubuntu 24.04 instances with bridged or host-only networking.
+> **Tip:** You can use VirtualBox, VMware Fusion, Multipass (`multipass launch`), or cloud VMs — anything that gives you three Ubuntu 24.04 instances with bridged or host-only networking.
 
 ---
 
-## ✅ Pre-flight checklist
+## Pre-flight checklist
 
 Run this on **every node** before you start:
 
@@ -104,14 +105,14 @@ Run this on **every node** before you start:
 [master] kubeadm init ──► Calico ──► workers join
         │
         ▼
-[✔ Cluster ready]
+[OK] Cluster ready
 ```
 
 ---
 
-## 🛠️ Step-by-step installation
+## Step-by-step installation
 
-> 🔁 **Every step marked "all nodes" must be run on the master AND both workers** before moving on.
+> **Every step marked "all nodes" must be run on the master AND both workers** before moving on.
 
 ### Step 1 — Hostnames & `/etc/hosts` (all nodes)
 
@@ -193,7 +194,7 @@ sudo sysctl --system
 
 ### Step 5 — Install and configure containerd (all nodes)
 
-> 🧒 **Why this step matters (layman's version):**
+> **Plain-English version:**
 > A **container** is just a tiny box that holds your application and everything
 > it needs to run. But who *opens* those boxes? That's the job of a
 > **container runtime**. `containerd` is the runtime Kubernetes uses.
@@ -201,7 +202,7 @@ sudo sysctl --system
 > Think of it like this:
 >
 > ```
->   kubelet (manager)  ──asks──►  containerd (worker)  ──opens──►  📦 📦 📦
+>   kubelet (manager)  --asks-->  containerd (worker)  --opens-->  [box] [box] [box]
 > ```
 >
 > Without a working runtime, the kubelet has nothing to start, so pods never
@@ -227,14 +228,14 @@ sudo systemctl enable containerd
 sudo systemctl status containerd --no-pager
 ```
 
-✅ You should see `active (running)`. Quick sanity check:
+You should see `active (running)`. Quick sanity check:
 
 ```bash
 sudo ctr version            # client & server version printed
 sudo ctr info | grep SystemdCgroup   # should print: SystemdCgroup: true
 ```
 
-> 💡 **Vagrant / VirtualBox tip:** if you ever see a warning about
+> **Vagrant / VirtualBox tip:** if you ever see a warning about
 > `sandbox_image`, containerd is just complaining that the `pause` image is
 > missing. It is harmless *for Calico* (Calico ships its own pause), but if you
 > want a clean log you can run:
@@ -266,7 +267,7 @@ sudo apt install -y kubelet kubeadm kubectl
 sudo apt-mark hold kubelet kubeadm kubectl   # prevent accidental upgrades
 ```
 
-> 🔒 `apt-mark hold` is a **best practice**: kubeadm-managed clusters should
+> **Note:** `apt-mark hold` is a **best practice**: kubeadm-managed clusters should
 > only be upgraded with `kubeadm upgrade`, never via `apt upgrade`.
 
 Confirm versions:
@@ -280,7 +281,7 @@ kubectl version --client
 
 ### Step 7 — Initialize the control plane (master node only)
 
-> 🧒 **Why this step matters (layman's version):**
+> **Plain-English version:**
 > `kubeadm init` is the command that **turns this empty Ubuntu VM into a
 > Kubernetes master**. It does three big things:
 > 1. Generates certificates and keys for the cluster.
@@ -317,7 +318,7 @@ kubectl get nodes   # master should be "NotReady" until we install a CNI
 
 ### Step 8 — Install Calico CNI (master node only)
 
-> 🧒 **Why this step matters (layman's version):**
+> **Plain-English version:**
 > After `kubeadm init` finishes, the master says *"I have no idea how to talk
 > to other nodes"* — your cluster is **NotReady**. A **CNI (Container Network
 > Interface)** plugin is the "phone line" that gives every pod an IP address
@@ -326,8 +327,8 @@ kubectl get nodes   # master should be "NotReady" until we install a CNI
 > We use **Calico** because it is the most common CNI in production:
 >
 > ```
->   Pod A (node-1) ──► Calico ──► Pod B (node-2)
->        10.10.0.5            10.10.0.17
+>   Pod A (node-1)  -->  Calico  -->  Pod B (node-2)
+>        10.10.0.5                10.10.0.17
 > ```
 >
 > Calico also enforces **network policies** (firewall rules between pods),
@@ -343,7 +344,7 @@ sed -i 's|cidr: 192\.168\.0\.0/16|cidr: 10.10.0.0/16|g' custom-resources.yaml
 kubectl create -f custom-resources.yaml
 ```
 
-> 👉 **What did `sed` just do?** Calico's default config tells the CNI to use
+> **What did `sed` just do?** Calico's default config tells the CNI to use
 > `192.168.0.0/16` for pod IPs. But our `kubeadm init` said *"pods will live in
 > `10.10.0.0/16`"*. They have to match, otherwise pods will not get the IPs we
 > expect. The `sed` rewrites that one line so both files agree.
@@ -368,7 +369,7 @@ A second, deeper check — make sure the kube-system pods are also happy:
 kubectl get pods -A
 ```
 
-> 💡 **Vagrant / VirtualBox tip:** if `calico-kube-controllers` or `calico-node`
+> **Vagrant / VirtualBox tip:** if `calico-kube-controllers` or `calico-node`
 > stays `Pending` or `ContainerCreating`, Calico cannot figure out which IP
 > belongs to which node (VirtualBox uses NAT, so the default detection fails).
 > Force it by editing the operator config:
@@ -425,18 +426,18 @@ Hit it from your laptop (use any worker IP from the table above):
 curl http://10.168.253.29:<NodePort>
 ```
 
-You should see the **"Welcome to nginx!"** page. 🎉
+You should see the **"Welcome to nginx!"** page.
 
 ---
 
-## 🆕 ETCD Backup & Restore (Demo)
+## ETCD Backup and Restore (Demo)
 
 > This section is written for a **live classroom demo**: it is short, scripted,
 > and reproducible.
 
 ### Why ETCD?
 
-> 🧒 **Layman's version:** Imagine your cluster is a spreadsheet. Every
+> **Plain-English version:** Imagine your cluster is a spreadsheet. Every
 > `Deployment`, `Service`, `Secret`, even the list of nodes themselves — all are
 > rows in that spreadsheet. **ETCD is that spreadsheet.** Lose ETCD and the
 > cluster "forgets" everything. Take a backup of ETCD and you can rebuild the
@@ -467,7 +468,7 @@ You should see the **"Welcome to nginx!"** page. 🎉
 
 ### Install `etcdctl` (master only)
 
-> 🧒 **Layman's version:** `etcdctl` is the **CLI tool** that lets us talk to
+> **Plain-English version:** `etcdctl` is the **CLI tool** that lets us talk to
 > ETCD directly. Think of it like a MySQL client for a database.
 
 ```bash
@@ -481,7 +482,7 @@ etcdctl version
 
 ### 1) Take a snapshot (backup)
 
-> 🧒 **Layman's version:** A *snapshot* is a frozen copy of the database file
+> **Plain-English version:** A *snapshot* is a frozen copy of the database file
 > at one point in time — exactly like Windows System Restore or a Mac Time
 > Machine snapshot. If the cluster breaks tomorrow, we will replay this
 > snapshot and we'll be back to "now".
@@ -511,7 +512,7 @@ sudo ETCDCTL_API=3 etcdctl snapshot status /opt/etcd-snapshot.db -w table
 You should see a row showing the **file size, hash and revision** — proof the
 snapshot is healthy.
 
-> 💡 **Vagrant tip:** after a successful backup, **copy the snapshot out of
+> **Vagrant tip:** after a successful backup, **copy the snapshot out of
 > the VM** so it survives even if the VM dies:
 >
 > ```bash
@@ -521,7 +522,7 @@ snapshot is healthy.
 
 ### 2) Schedule automatic backups (cron)
 
-> 🧒 **Layman's version:** You don't want to remember to take a snapshot
+> **Plain-English version:** You don't want to remember to take a snapshot
 > every day. `cron` is Linux's "do this automatically at a fixed time"
 > scheduler. We will tell it to run the snapshot script **every hour** and
 > keep only the last 24 backups so the disk doesn't fill up.
@@ -558,14 +559,14 @@ cat /etc/cron.d/etcd-backup
 systemctl status cron --no-pager
 ```
 
-> 💡 **Vagrant / VirtualBox note:** inside a `vagrant halt` / `vagrant up`
+> **Vagrant / VirtualBox note:** inside a `vagrant halt` / `vagrant up`
 > cycle the system clock can jump. If you see "took a snapshot from the
 > future" warnings, just delete the suspicious file:
 > `sudo rm /var/backups/etcd/etcd-2099-*`.
 
 ### 3) Disaster!  Restore the snapshot
 
-> 🧒 **Layman's version:** This is the moment we pretend our cluster crashed.
+> **Plain-English version:** This is the moment we pretend our cluster crashed.
 > We will:
 >
 > 1. Stop the services that are using ETCD (so nobody else is writing to it).
@@ -606,19 +607,205 @@ If everything came back, you should see the same nodes, namespaces, deployments
 and services that existed at the time of the snapshot — **including the demo
 Nginx we deployed earlier**.
 
-> ⚠️ The restore must happen **only on the control-plane node**, and only when
+> **Warning:** The restore must happen **only on the control-plane node**, and only when
 > the API server is stopped. Otherwise ETCD will reject concurrent writes.
 >
-> ⚠️ Workers keep running during the restore, but they will temporarily show
+> **Warning:** Workers keep running during the restore, but they will temporarily show
 > `NotReady` because the API server is down. That is normal — they recover on
 > their own.
 
-> ⚠️ The restore must happen **only on the control-plane node**, and only when
+> **Warning:** The restore must happen **only on the control-plane node**, and only when
 > the API server is stopped. Otherwise ETCD will reject concurrent writes.
 
 ---
 
-## 🩹 Troubleshooting quick-fixes
+## Cluster Upgrade (v1.34 -> v1.35)
+
+> **Plain-English version:** Kubernetes ships ~3 minor releases per year, and
+> each new minor (e.g. v1.34 -> v1.35) brings bug fixes and new features.
+> Clusters are upgraded **one minor version at a time**, on the
+> **control-plane first**, then on each **worker**, then the CNI. You cannot
+> skip a minor (v1.34 -> v1.36 is not supported).
+>
+> The general order is:
+>
+> ```
+>    1. ETCD snapshot (safety net)
+>    2. Upgrade apt repo from v1.34 to v1.35
+>    3. apt-mark unhold, install new kubeadm, kubeadm upgrade apply
+>    4. Install new kubelet/kubectl, restart kubelet
+>    5. Repeat (3)+(4) on every worker
+>    6. Upgrade Calico to a v1.35-compatible version
+>    7. Verify
+> ```
+
+### Pre-flight
+
+Before you touch anything:
+
+- Read the upstream release notes: <https://kubernetes.io/blog/YYYY/MM/release-of-Kubernetes-v1-35/>
+  (search for the published v1.35 announcement).
+- Read Calico's compatibility matrix for v1.35 (Calico v3.31.x is the
+  v1.35-compatible stream at the time of writing).
+- **Take a fresh ETCD snapshot right now.** The upgrade is usually safe, but
+  the snapshot is your one-click undo:
+
+  ```bash
+  sudo ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+    --cert=/etc/kubernetes/pki/etcd/server.crt \
+    --key=/etc/kubernetes/pki/etcd/server.key \
+    snapshot save /opt/etcd-pre-v135.db
+
+  sudo cp /opt/etcd-pre-v135.db /vagrant/etcd-pre-v135-$(date +%F).db
+  ```
+
+- Confirm your current version:
+
+  ```bash
+  kubectl get version
+  ```
+
+### 1) Control-plane upgrade (master only)
+
+Switch the apt repo to the v1.35 stream and install the new components:
+
+```bash
+# Discover the latest patch in the 1.35 stream (e.g. v1.35.8)
+KUBE_LATEST=$(curl -fsSL https://dl.k8s.io/release/stable-1.35.txt)
+echo "Upgrading to Kubernetes ${KUBE_LATEST}"
+
+# Swap the apt source list from v1.34 -> v1.35
+sudo sed -i 's|/core:/stable:/v1.34/|/core:/stable:/v1.35/|' \
+  /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt update
+
+# Release the hold so apt will install the new packages
+sudo apt-mark unhold kubeadm kubelet kubectl
+
+# Install the matching versions (kubeadm first, then kubelet+kubectl)
+sudo apt install -y kubeadm=${KUBE_LATEST}-1.1 kubelet=${KUBE_LATEST}-1.1 kubectl=${KUBE_LATEST}-1.1
+
+# Re-hold so we never auto-upgrade again
+sudo apt-mark hold kubeadm kubelet kubectl
+
+# Drain workloads running on the control plane (best practice, optional on single CP)
+sudo kubectl drain k8s-master-node --ignore-daemonsets --delete-emptydir-data || true
+
+# Plan + apply the upgrade
+sudo kubeadm upgrade plan
+sudo kubeadm upgrade apply ${KUBE_LATEST} -y
+
+# Restart kubelet to pick up the new binary
+sudo systemctl restart kubelet
+```
+
+> **Note:** the apt package suffix `-1.1` matches the current
+> `pkgs.k8s.io` packaging. If your upgrade complains about version
+> `not found`, run `apt-cache madison kubeadm` and use the version string it
+> prints (e.g. `1.35.8-1.1`).
+
+### 2) Worker upgrade (each worker, one at a time)
+
+For each worker, repeat:
+
+```bash
+# From the master: drain the worker so new pods land elsewhere
+kubectl drain k8s-worker-node-1 --ignore-daemonsets --delete-emptydir-data
+
+# On the worker:
+KUBE_LATEST=$(curl -fsSL https://dl.k8s.io/release/stable-1.35.txt)
+sudo sed -i 's|/core:/stable:/v1.34/|/core:/stable:/v1.35/|' \
+  /etc/apt/sources.list.d/kubernetes.list
+sudo apt update
+
+sudo apt-mark unhold kubeadm kubelet kubectl
+sudo apt install -y kubeadm=${KUBE_LATEST}-1.1 kubelet=${KUBE_LATEST}-1.1 kubectl=${KUBE_LATEST}-1.1
+sudo apt-mark hold kubeadm kubelet kubectl
+
+sudo kubeadm upgrade node    # workers do NOT use "apply"
+sudo systemctl restart kubelet
+
+# Back on the master: uncordon the worker
+kubectl uncordon k8s-worker-node-1
+```
+
+Repeat the block for `k8s-worker-node-2`.
+
+### 3) Upgrade Calico CNI
+
+Calico v3.30 (used for v1.34) is **not** compatible with v1.35. Bump to
+Calico v3.31:
+
+```bash
+# Discover the latest Calico 3.31 patch (e.g. v3.31.2)
+CALICO_VER=$(curl -fsSL https://api.github.com/repos/projectcalico/calico/releases/latest \
+            | python3 -c "import sys, json; print(json.load(sys.stdin)['tag_name'])")
+echo "Upgrading Calico to ${CALICO_VER}"
+
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VER}/manifests/tigera-operator.yaml
+
+curl -fsSL https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VER}/manifests/custom-resources.yaml -O
+# Keep the same CIDR we used originally; do NOT re-run the sed that rewrites 192.168 -> 10.10
+kubectl apply -f custom-resources.yaml
+
+kubectl -n calico-system rollout restart deployment tigera-operator
+kubectl -n calico-system rollout status  daemonset calico-node --timeout=180s
+```
+
+> **Why this step matters:** Kubernetes validates the **kube-apiserver
+> version** of every component talking to it. If Calico is too old, its
+> pods will fail to register with the new API server and you'll see
+> `NotReady` nodes with no obvious cause.
+
+### 4) Verify the cluster
+
+```bash
+kubectl get nodes -o wide                       # all v1.35.x
+kubectl get pods -A                             # all Running
+kubectl get hpa,svc,deploy -A                   # workloads still exist
+kubectl version                                 # server & client both v1.35.x
+```
+
+### 5) Roll back (if anything goes wrong)
+
+The ETCD snapshot you took in **Pre-flight** is your undo button. The
+procedure is the same as the one in the **ETCD Backup and Restore (Demo)**
+section above:
+
+1. Stop the API server + etcd static pods (`mv` manifests to `.bak`).
+2. `sudo mv /var/lib/etcd /var/lib/etcd.broken`
+3. `sudo ETCDCTL_API=3 etcdctl snapshot restore /opt/etcd-pre-v135.db --data-dir=/var/lib/etcd`
+4. Move manifests back, wait, verify.
+
+> **Warning:** Rolling back ETCD restores the *cluster state* to the moment
+> of the snapshot, but it does **not** downgrade the kubelet binary on the
+> nodes. If the rollback leaves nodes NotReady, re-install the previous
+> kubelet:
+>
+> ```bash
+> sudo apt-mark unhold kubelet
+> sudo apt install -y kubelet=1.34.11-1.1 kubectl=1.34.11-1.1
+> sudo apt-mark hold kubelet
+> sudo systemctl restart kubelet
+> ```
+
+### Upgrade cheat-sheet
+
+| Step | Where | Command(s) | Notes |
+|------|-------|------------|-------|
+| Snapshot | master | `etcdctl snapshot save` | Always first |
+| Switch repo | all nodes | `sed` + `apt update` | v1.34 -> v1.35 |
+| Upgrade kubeadm | all nodes | `apt install kubeadm=...` | unhold first |
+| Upgrade control plane | master | `kubeadm upgrade apply` | drains CP, single CP optional |
+| Upgrade worker | each worker | `kubeadm upgrade node` | drain -> upgrade -> uncordon |
+| Upgrade CNI | master | `kubectl apply -f calico.yaml` | v3.30 -> v3.31 |
+| Verify | master | `kubectl get nodes -o wide` | all v1.35.x |
+
+---
+
+## Troubleshooting quick-fixes
 
 | Symptom                                              | Likely cause                        | Fix                                              |
 |------------------------------------------------------|-------------------------------------|--------------------------------------------------|
@@ -631,7 +818,7 @@ Nginx we deployed earlier**.
 
 ---
 
-## ⚡ Useful kubectl shortcuts
+## Useful kubectl shortcuts
 
 ```bash
 kubectl get pods -A                         # everything in every namespace
@@ -655,7 +842,7 @@ alias kl='kubectl logs'
 
 ---
 
-## 🧹 Cleanup (start fresh)
+## Cleanup (start fresh)
 
 ```bash
 # On each node:
@@ -668,7 +855,7 @@ Then re-run from Step 7.
 
 ---
 
-### 🙌 Happy clustering!
+### Happy clustering!
 
 If something breaks, read the error message end-to-end, then run
 `kubectl describe` and `kubectl logs` before asking — the answer is almost
