@@ -193,13 +193,30 @@ sudo sysctl --system
 
 ### Step 5 — Install and configure containerd (all nodes)
 
+> 🧒 **Why this step matters (layman's version):**
+> A **container** is just a tiny box that holds your application and everything
+> it needs to run. But who *opens* those boxes? That's the job of a
+> **container runtime**. `containerd` is the runtime Kubernetes uses.
+>
+> Think of it like this:
+>
+> ```
+>   kubelet (manager)  ──asks──►  containerd (worker)  ──opens──►  📦 📦 📦
+> ```
+>
+> Without a working runtime, the kubelet has nothing to start, so pods never
+> appear. We also tell containerd to use the **same cgroup driver as the OS**
+> (`systemd`). A *cgroup* is just a way to say "this process is only allowed to
+> use this much CPU and RAM". If kubelet and containerd disagree on who's
+> measuring, the kubelet fails to start — this is the **#1 cause of install
+> failures** on Ubuntu, so we fix it up front.
+
 ```bash
 sudo apt update
 sudo apt install -y containerd.io
 ```
 
-Generate the default config and **switch cgroup driver to systemd** (this is the
-#1 cause of `kubelet` start failures on Ubuntu):
+Generate the default config and **switch the cgroup driver to systemd**:
 
 ```bash
 sudo mkdir -p /etc/containerd
@@ -210,8 +227,23 @@ sudo systemctl enable containerd
 sudo systemctl status containerd --no-pager
 ```
 
-You should see `active (running)`. If you see a sandbox image warning, that's
-fine for v1.34 — we don't need to override it.
+✅ You should see `active (running)`. Quick sanity check:
+
+```bash
+sudo ctr version            # client & server version printed
+sudo ctr info | grep SystemdCgroup   # should print: SystemdCgroup: true
+```
+
+> 💡 **Vagrant / VirtualBox tip:** if you ever see a warning about
+> `sandbox_image`, containerd is just complaining that the `pause` image is
+> missing. It is harmless *for Calico* (Calico ships its own pause), but if you
+> want a clean log you can run:
+>
+> ```bash
+> sudo sed -i 's|sandbox_image = ".*"|sandbox_image = "registry.k8s.io/pause:3.9"|' \
+>   /etc/containerd/config.toml
+> sudo systemctl restart containerd
+> ```
 
 ---
 
@@ -248,10 +280,24 @@ kubectl version --client
 
 ### Step 7 — Initialize the control plane (master node only)
 
+> 🧒 **Why this step matters (layman's version):**
+> `kubeadm init` is the command that **turns this empty Ubuntu VM into a
+> Kubernetes master**. It does three big things:
+> 1. Generates certificates and keys for the cluster.
+> 2. Boots up the *control plane* components (API server, scheduler,
+>    controller manager, etcd) as static pods.
+> 3. Prints a `kubeadm join` line that you will later paste on the workers.
+>
+> Think of `kubeadm init` as the "switch this VM on, make it the boss" command.
+
 ```bash
+# Discover the latest patch in the 1.34 stream (e.g. v1.34.11)
+KUBE_LATEST=$(curl -fsSL https://dl.k8s.io/release/stable-1.34.txt)
+echo "Will initialize Kubernetes ${KUBE_LATEST}"
+
 sudo kubeadm init \
   --pod-network-cidr=10.10.0.0/16 \
-  --kubernetes-version=v1.34.0 \
+  --kubernetes-version=${KUBE_LATEST} \
   --control-plane-endpoint=k8s-master-node:6443
 ```
 
@@ -271,7 +317,23 @@ kubectl get nodes   # master should be "NotReady" until we install a CNI
 
 ### Step 8 — Install Calico CNI (master node only)
 
-Calico v3.30 is the version compatible with Kubernetes v1.34.
+> 🧒 **Why this step matters (layman's version):**
+> After `kubeadm init` finishes, the master says *"I have no idea how to talk
+> to other nodes"* — your cluster is **NotReady**. A **CNI (Container Network
+> Interface)** plugin is the "phone line" that gives every pod an IP address
+> and lets pods on different nodes chat with each other.
+>
+> We use **Calico** because it is the most common CNI in production:
+>
+> ```
+>   Pod A (node-1) ──► Calico ──► Pod B (node-2)
+>        10.10.0.5            10.10.0.17
+> ```
+>
+> Calico also enforces **network policies** (firewall rules between pods),
+> which we won't touch today but is why production teams pick it.
+>
+> Calico v3.30 is the version compatible with Kubernetes v1.34.
 
 ```bash
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/tigera-operator.yaml
@@ -281,12 +343,45 @@ sed -i 's|cidr: 192\.168\.0\.0/16|cidr: 10.10.0.0/16|g' custom-resources.yaml
 kubectl create -f custom-resources.yaml
 ```
 
-Wait ~30 s, then verify:
+> 👉 **What did `sed` just do?** Calico's default config tells the CNI to use
+> `192.168.0.0/16` for pod IPs. But our `kubeadm init` said *"pods will live in
+> `10.10.0.0/16`"*. They have to match, otherwise pods will not get the IPs we
+> expect. The `sed` rewrites that one line so both files agree.
+
+Wait ~30 s, then verify. This is the moment of truth:
 
 ```bash
 kubectl get nodes                     # master should now be Ready
 kubectl get pods -n calico-system      # all Running
 ```
+
+Watch them come up live:
+
+```bash
+kubectl -n calico-system get pods -w
+# press Ctrl+C when you see everything is Running
+```
+
+A second, deeper check — make sure the kube-system pods are also happy:
+
+```bash
+kubectl get pods -A
+```
+
+> 💡 **Vagrant / VirtualBox tip:** if `calico-kube-controllers` or `calico-node`
+> stays `Pending` or `ContainerCreating`, Calico cannot figure out which IP
+> belongs to which node (VirtualBox uses NAT, so the default detection fails).
+> Force it by editing the operator config:
+>
+> ```bash
+> kubectl -n tigera-operator get operatorconfiguration default -o yaml > /tmp/op.yaml
+> # change the IP autodetection line to your interface (usually enp0s3 or eth1):
+> #   spec.calicoNetwork.nodeAddressAutodetectionIPv4: firstFound: false
+> #                                                      interface: enp0s3
+> kubectl apply -f /tmp/op.yaml
+> ```
+>
+> Re-run `kubectl get pods -n calico-system -w` and you should see them come up.
 
 ---
 
@@ -341,18 +436,22 @@ You should see the **"Welcome to nginx!"** page. 🎉
 
 ### Why ETCD?
 
-ETCD is the **single source of truth** for your cluster — every object
-(`Deployment`, `Service`, `Secret`, …) lives there. Backup it = backup your
-cluster.
+> 🧒 **Layman's version:** Imagine your cluster is a spreadsheet. Every
+> `Deployment`, `Service`, `Secret`, even the list of nodes themselves — all are
+> rows in that spreadsheet. **ETCD is that spreadsheet.** Lose ETCD and the
+> cluster "forgets" everything. Take a backup of ETCD and you can rebuild the
+> whole cluster even on a fresh VM.
+>
+> So: **backup ETCD = backup your cluster.**
 
 ```
           ┌──────────────┐
-          │   kubectl    │
+          │   kubectl    │     "Hey API server, list my pods"
           └──────┬───────┘
                  │ HTTPS
                  ▼
         ┌────────────────┐         ┌──────────────┐
-        │   API server   │ ──────► │    ETCD      │ ◄── backup target
+        │   API server   │ ──────► │    ETCD      │  ◄── this is what we back up
         └────────────────┘         └──────────────┘
 ```
 
@@ -368,8 +467,8 @@ cluster.
 
 ### Install `etcdctl` (master only)
 
-`etcdctl` is shipped inside the `etcd-client` apt package, or you can fetch the
-binary that matches your `kubeadm`-bundled etcd:
+> 🧒 **Layman's version:** `etcdctl` is the **CLI tool** that lets us talk to
+> ETCD directly. Think of it like a MySQL client for a database.
 
 ```bash
 ETCD_VER=$(kubeadm version -o short | sed 's/v//')      # e.g. 1.34.x
@@ -382,6 +481,11 @@ etcdctl version
 
 ### 1) Take a snapshot (backup)
 
+> 🧒 **Layman's version:** A *snapshot* is a frozen copy of the database file
+> at one point in time — exactly like Windows System Restore or a Mac Time
+> Machine snapshot. If the cluster breaks tomorrow, we will replay this
+> snapshot and we'll be back to "now".
+
 ```bash
 sudo ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
@@ -390,13 +494,37 @@ sudo ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
   snapshot save /opt/etcd-snapshot.db
 ```
 
-Sanity-check the snapshot:
+Quick explanation of the flags:
+
+| Flag                | What it means                                              |
+|---------------------|------------------------------------------------------------|
+| `--endpoints=...`   | Where ETCD is listening (master's localhost in our case).  |
+| `--cacert / --cert / --key` | ETCD uses TLS; these three prove we are allowed to talk to it. |
+| `snapshot save`     | "Copy the whole database to a file and stop, that's it."   |
+
+Sanity-check the snapshot (no risk — it only reads the file):
 
 ```bash
 sudo ETCDCTL_API=3 etcdctl snapshot status /opt/etcd-snapshot.db -w table
 ```
 
+You should see a row showing the **file size, hash and revision** — proof the
+snapshot is healthy.
+
+> 💡 **Vagrant tip:** after a successful backup, **copy the snapshot out of
+> the VM** so it survives even if the VM dies:
+>
+> ```bash
+> sudo cp /opt/etcd-snapshot.db /vagrant/etcd-snapshot-$(date +%F).db
+> ls -lh /vagrant/etcd-snapshot-*.db
+> ```
+
 ### 2) Schedule automatic backups (cron)
+
+> 🧒 **Layman's version:** You don't want to remember to take a snapshot
+> every day. `cron` is Linux's "do this automatically at a fixed time"
+> scheduler. We will tell it to run the snapshot script **every hour** and
+> keep only the last 24 backups so the disk doesn't fill up.
 
 ```bash
 sudo tee /etc/cron.d/etcd-backup <<'EOF'
@@ -423,7 +551,31 @@ EOF
 sudo chmod +x /usr/local/bin/etcd-backup.sh
 ```
 
+Verify the cron job is registered:
+
+```bash
+cat /etc/cron.d/etcd-backup
+systemctl status cron --no-pager
+```
+
+> 💡 **Vagrant / VirtualBox note:** inside a `vagrant halt` / `vagrant up`
+> cycle the system clock can jump. If you see "took a snapshot from the
+> future" warnings, just delete the suspicious file:
+> `sudo rm /var/backups/etcd/etcd-2099-*`.
+
 ### 3) Disaster!  Restore the snapshot
+
+> 🧒 **Layman's version:** This is the moment we pretend our cluster crashed.
+> We will:
+>
+> 1. Stop the services that are using ETCD (so nobody else is writing to it).
+> 2. Throw away the broken database.
+> 3. Replay the snapshot into a fresh, empty database.
+> 4. Turn the services back on.
+> 5. The cluster is now exactly where the snapshot was taken.
+>
+> It is the same idea as restoring a corrupt Microsoft Word document from a
+> `.docx` backup: stop the app, replace the file, restart the app.
 
 This is the part you demo to the students.
 
@@ -431,22 +583,35 @@ This is the part you demo to the students.
 # 1. Stop the API server & etcd (they run as static pods)
 sudo mv /etc/kubernetes/manifests/etcd.yaml     /etc/kubernetes/manifests/etcd.yaml.bak
 sudo mv /etc/kubernetes/manifests/kube-apiserver.yaml /etc/kubernetes/manifests/kube-apiserver.yaml.bak
+sleep 5                                       # give kubelet a moment to stop the pods
 
-# 2. Wipe the broken data dir
+# 2. Wipe the broken data dir (keep a copy just in case)
 sudo mv /var/lib/etcd /var/lib/etcd.broken
 
-# 3. Restore from snapshot
+# 3. Restore from snapshot into a fresh data dir
 sudo ETCDCTL_API=3 etcdctl snapshot restore /opt/etcd-snapshot.db \
   --data-dir=/var/lib/etcd
 
-# 4. Restart the static pods
+# 4. Restart the static pods by moving manifests back
 sudo mv /etc/kubernetes/manifests/etcd.yaml.bak           /etc/kubernetes/manifests/etcd.yaml
 sudo mv /etc/kubernetes/manifests/kube-apiserver.yaml.bak /etc/kubernetes/manifests/kube-apiserver.yaml
 
-# 5. Verify
+# 5. Wait ~30 s and verify
+sleep 30
 kubectl get nodes
 kubectl get ns
 ```
+
+If everything came back, you should see the same nodes, namespaces, deployments
+and services that existed at the time of the snapshot — **including the demo
+Nginx we deployed earlier**.
+
+> ⚠️ The restore must happen **only on the control-plane node**, and only when
+> the API server is stopped. Otherwise ETCD will reject concurrent writes.
+>
+> ⚠️ Workers keep running during the restore, but they will temporarily show
+> `NotReady` because the API server is down. That is normal — they recover on
+> their own.
 
 > ⚠️ The restore must happen **only on the control-plane node**, and only when
 > the API server is stopped. Otherwise ETCD will reject concurrent writes.
