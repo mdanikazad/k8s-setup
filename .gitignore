@@ -1,0 +1,13 @@
+# Vagrant / VirtualBox build artefacts
+/.vagrant/
+*.box
+
+# Editor / Puku runtime
+/.idea/
+/.puku/
+/.vscode/
+
+# VM sync-folder artefacts
+join-command.sh
+*-screenshot*.png
+.vagrant-private-ip

@@ -22,6 +22,12 @@
    - [Step 8 — Install Calico CNI](#step-8--install-calico-cni-master-node-only)
    - [Step 9 — Join worker nodes](#step-9--join-worker-nodes-on-each-worker)
    - [Step 10 — Smoke test](#step-10--smoke-test-the-cluster)
+4. [Vagrant lab in this repository](#vagrant-lab-in-this-repository)
+5. [ETCD Backup and Restore (Demo)](#etcd-backup-and-restore-demo)
+6. [Cluster Upgrade (v1.34 -> v1.35)](#cluster-upgrade-v134--v135)
+7. [Troubleshooting quick-fixes](#troubleshooting-quick-fixes)
+8. [Useful kubectl shortcuts](#useful-kubectl-shortcuts)
+9. [Cleanup](#cleanup-start-fresh)
 5. [ETCD Backup and Restore (Demo)](#etcd-backup-and-restore-demo)
 6. [Cluster Upgrade (v1.34 -> v1.35)](#cluster-upgrade-v134--v135)
 7. [Troubleshooting quick-fixes](#troubleshooting-quick-fixes)
@@ -213,6 +219,15 @@ sudo sysctl --system
 > failures** on Ubuntu, so we fix it up front.
 
 ```bash
+# The containerd.io package is published by Docker, so we must add Docker's
+# apt repository first.  (containerd.io is NOT in the default Ubuntu archives.)
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor \
+  -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list
 sudo apt update
 sudo apt install -y containerd.io
 ```
@@ -296,10 +311,29 @@ kubectl version --client
 KUBE_LATEST=$(curl -fsSL https://dl.k8s.io/release/stable-1.34.txt)
 echo "Will initialize Kubernetes ${KUBE_LATEST}"
 
+# IMPORTANT: --apiserver-advertise-address MUST be the **private-network**
+# interface of the master (10.168.253.4 in this lab).  If you let kubeadm
+# auto-detect it, kubeadm will pick eth0 (the NAT / internet interface,
+# 10.0.2.15 in Vagrant), which is unreachable from the worker nodes.  The
+# symptom of getting this wrong is that `kubectl get nodes` works on the
+# master but pods on workers can't reach the kubernetes service (the
+# ClusterIP 10.96.0.1 gets DNAT'd to 10.0.2.15, which is not routed between
+# Vagrant VMs) and `calico-node` gets stuck in Init:CrashLoopBackOff with
+# "Unable to create token for CNI kubeconfig: dial tcp 10.96.0.1:443:
+# connect: connection refused".
 sudo kubeadm init \
   --pod-network-cidr=10.10.0.0/16 \
   --kubernetes-version=${KUBE_LATEST} \
-  --control-plane-endpoint=k8s-master-node:6443
+  --control-plane-endpoint=k8s-master-node:6443 \
+  --apiserver-advertise-address=10.168.253.4
+```
+
+Sanity-check that kubeadm picked the right interface:
+
+```bash
+sudo kubectl -n default get endpoints kubernetes -o yaml \
+  | grep -A1 'addresses:' | head -2
+# MUST show: ip: 10.168.253.4 (NOT 10.0.2.15)
 ```
 
 When `kubeadm init` finishes, it prints a **`kubeadm join ...`** line — **copy
@@ -339,6 +373,13 @@ kubectl get nodes   # master should be "NotReady" until we install a CNI
 ```bash
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/tigera-operator.yaml
 
+# Wait for the operator to install its CRDs (Installation, APIServer, ...).
+# Running the next kubectl create immediately usually fails with
+#   "no matches for kind 'Installation' in version 'operator.tigera.io/v1'
+#    ensure CRDs are installed first"
+kubectl wait --for=condition=Available --timeout=120s \
+  deployment/tigera-operator -n tigera-operator
+
 curl -fsSL https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/custom-resources.yaml -O
 sed -i 's|cidr: 192\.168\.0\.0/16|cidr: 10.10.0.0/16|g' custom-resources.yaml
 kubectl create -f custom-resources.yaml
@@ -369,20 +410,28 @@ A second, deeper check — make sure the kube-system pods are also happy:
 kubectl get pods -A
 ```
 
-> **Vagrant / VirtualBox tip:** if `calico-kube-controllers` or `calico-node`
-> stays `Pending` or `ContainerCreating`, Calico cannot figure out which IP
-> belongs to which node (VirtualBox uses NAT, so the default detection fails).
-> Force it by editing the operator config:
+> **Vagrant / VirtualBox tip:** the most common reason
+> `calico-node` stays in `Init:CrashLoopBackOff` on a worker is **not** a
+> Calico IP-detection problem.  It is that the worker cannot reach the
+> cluster's kubernetes service (10.96.0.1:443), which kube-proxy DNATs to
+> the master's advertised address.  If `kubeadm init` was run **without**
+> `--apiserver-advertise-address=<private-IP>`, kubeadm auto-detected the
+> master's eth0 (NAT) address (10.0.2.15) which is **not routable between
+> Vagrant VMs**.  You can confirm with:
 >
 > ```bash
-> kubectl -n tigera-operator get operatorconfiguration default -o yaml > /tmp/op.yaml
-> # change the IP autodetection line to your interface (usually enp0s3 or eth1):
-> #   spec.calicoNetwork.nodeAddressAutodetectionIPv4: firstFound: false
-> #                                                      interface: enp0s3
-> kubectl apply -f /tmp/op.yaml
+> # On the master, after the workers have joined:
+> sudo kubectl -n default get endpoints kubernetes -o yaml \
+>   | grep -A1 'addresses:'
+> # MUST show: ip: 10.168.253.4
+> # If it shows 10.0.2.15 instead, kubeadm init was run without
+> # --apiserver-advertise-address and the workers will never be Ready.
 > ```
 >
-> Re-run `kubectl get pods -n calico-system -w` and you should see them come up.
+> The fix is to **re-init the master** (see Step 7) with
+> `--apiserver-advertise-address=10.168.253.4`, then re-join the workers.
+> You do NOT need to mess with `OperatorConfiguration` /
+> `nodeAddressAutodetectionIPv4` for this lab.
 
 ---
 
@@ -427,6 +476,35 @@ curl http://10.168.253.29:<NodePort>
 ```
 
 You should see the **"Welcome to nginx!"** page.
+
+---
+
+## Vagrant lab in this repository
+
+The repository ships a ready-to-go **Vagrant lab** that builds the exact
+three-VM topology described above (1 control-plane + 2 workers, Ubuntu
+24.04, fixed IPs).  It uses VirtualBox as the provider.
+
+```bash
+vagrant up                        # ~5 min on a fast laptop
+vagrant ssh k8s-master-node       # SSH into any node
+vagrant destroy -f                # tear it down
+```
+
+The provisioning script (see `scripts/`) implements every step of this
+guide automatically.  If you would rather go through the steps by hand so
+you can see exactly what happens, follow the **Step-by-step installation**
+section above on each VM.
+
+Files in this lab:
+
+- `Vagrantfile` - declares the three VMs and their fixed IPs.
+- `scripts/common-node.sh` - Steps 1-6 (hostnames, swap, kernel modules,
+  sysctl, containerd, kubeadm/kubelet/kubectl).
+- `scripts/master-bootstrap.sh` - Step 7-8 (kubeadm init + Calico).
+- `scripts/worker-join.sh` - Step 9 (`kubeadm join`).
+- `scripts/install-containerd.sh` - installs `containerd.io` from the
+  Docker apt repository (Step 5 prerequisite).
 
 ---
 
@@ -809,10 +887,13 @@ section above:
 
 | Symptom                                              | Likely cause                        | Fix                                              |
 |------------------------------------------------------|-------------------------------------|--------------------------------------------------|
+| `apt install containerd.io` says "Unable to locate package" | Docker apt source not added | Step 5 now adds `download.docker.com/linux/ubuntu` first |
 | `kubelet` fails with `connection refused`            | containerd cgroup driver mismatch   | Set `SystemdCgroup = true` in containerd config  |
 | `NotReady` node after `kubeadm init`                 | CNI not installed                   | Install Calico (Step 8)                          |
 | `kubeadm join` says token expired                    | Tokens live 24 h                    | `kubeadm token create --print-join-command`      |
 | `conntrack` errors in kubelet                        | conntrack not installed             | `sudo apt install -y conntrack`                  |
+| `calico-node` stuck in `Init:CrashLoopBackOff` on workers | Master advertises NAT IP (`10.0.2.15`) instead of private IP | Re-run `kubeadm init` with `--apiserver-advertise-address=<private-IP>` |
+| `kubectl create -f custom-resources.yaml` says "no matches for kind Installation" | Operator has not installed its CRDs yet | `kubectl wait --for=condition=Available deployment/tigera-operator -n tigera-operator` before applying custom-resources |
 | Pod stuck in `ContainerCreating`                     | Calico pod not ready                | `kubectl -n calico-system get pods` and wait     |
 | `curl http://worker-ip:nodeport` fails               | Firewall on worker blocking 30000+  | `sudo ufw allow 30000:32767/tcp`                 |
 
